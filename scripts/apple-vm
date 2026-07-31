@@ -1,0 +1,238 @@
+#!/bin/sh
+
+set -eu
+
+VM_NAME=${HOMELABD_VM_NAME:-homelabd-dev}
+VM_IMAGE=${HOMELABD_VM_IMAGE:-local/homelabd-machine:latest}
+VM_CPUS=${HOMELABD_VM_CPUS:-4}
+VM_MEMORY=${HOMELABD_VM_MEMORY:-4G}
+VM_DNS=${HOMELABD_VM_DNS:-}
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_DIR=$(dirname "$SCRIPT_DIR")
+
+usage() {
+	cat <<EOF
+Usage: scripts/apple-vm <command> [arguments]
+
+Commands:
+  up       Create, boot, and provision the development VM
+  shell    Open a shell in the VM at the repository directory
+  test     Run go test ./... in the VM
+  run      Build homelabd and run it as root in the VM
+  exec     Run an arbitrary command in the VM
+  status   Show the VM configuration and status
+  stop     Stop the VM
+  delete   Delete the VM after confirmation
+
+Configuration:
+  HOMELABD_VM_NAME     VM name (default: $VM_NAME)
+  HOMELABD_VM_IMAGE    Prebuilt OCI image; skips the local image build
+  HOMELABD_VM_CPUS     Virtual CPUs (default: $VM_CPUS)
+  HOMELABD_VM_MEMORY   Memory allocation (default: $VM_MEMORY)
+  HOMELABD_VM_DNS      Builder DNS server (default: macOS resolver)
+EOF
+}
+
+require_container() {
+	if ! command -v container >/dev/null 2>&1; then
+		cat >&2 <<'EOF'
+Apple's container CLI is not installed.
+
+Install the latest signed package from:
+https://github.com/apple/container/releases/latest
+EOF
+		exit 1
+	fi
+
+	if ! container machine --help >/dev/null 2>&1; then
+		cat >&2 <<'EOF'
+This version of Apple's container CLI does not support `container machine`.
+Upgrade to version 1.0.0 or newer.
+EOF
+		exit 1
+	fi
+}
+
+machine_exists() {
+	container machine inspect "$VM_NAME" >/dev/null 2>&1
+}
+
+detect_dns() {
+	if [ -z "$VM_DNS" ]; then
+		VM_DNS=$(
+			scutil --dns 2>/dev/null |
+				awk '/nameserver\[[0-9]+\] :/ { print $3; exit }'
+		)
+	fi
+}
+
+build_machine_image() {
+	if [ "${HOMELABD_VM_IMAGE+x}" = x ]; then
+		return
+	fi
+
+	detect_dns
+
+	# BuildKit runs in its own VM. The `container build --dns` flag does not
+	# reconfigure an existing builder, so start the builder with DNS explicitly.
+	if [ -n "$VM_DNS" ]; then
+		echo "Starting the image builder with DNS resolver '$VM_DNS'..."
+		container builder stop >/dev/null 2>&1 || true
+		container builder start --dns "$VM_DNS"
+	fi
+
+	echo "Building machine image '$VM_IMAGE'..."
+	container build \
+		--tag "$VM_IMAGE" \
+		--file "$SCRIPT_DIR/apple-vm.Dockerfile" \
+		"$REPO_DIR"
+}
+
+ensure_machine() {
+	if ! machine_exists; then
+		echo "VM '$VM_NAME' does not exist; creating it first."
+		up
+	fi
+}
+
+up() {
+	echo "Starting Apple's container services..."
+	container system start
+
+	if machine_exists; then
+		echo "Using existing VM '$VM_NAME'."
+	else
+		build_machine_image
+		echo "Creating VM '$VM_NAME' from '$VM_IMAGE'..."
+		container machine create \
+			--name "$VM_NAME" \
+			--set-default \
+			--cpus "$VM_CPUS" \
+			--memory "$VM_MEMORY" \
+			--home-mount rw \
+			"$VM_IMAGE"
+	fi
+
+	echo "Booting and checking the development environment..."
+	if ! container machine run --name "$VM_NAME" --root -- \
+		ln -sf /usr/local/go/bin/go /usr/local/bin/go ||
+		! container machine run --name "$VM_NAME" --root -- \
+			ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt ||
+		! container machine run --name "$VM_NAME" --root -- \
+			/usr/local/bin/go version ||
+		! container machine run --name "$VM_NAME" --root -- \
+			/usr/bin/lsblk --version ||
+		! container machine run --name "$VM_NAME" --root -- \
+			/usr/bin/lspci --version
+	then
+		if container machine logs "$VM_NAME" 2>/dev/null |
+			grep -q '/sbin/init: not found'
+		then
+			cat >&2 <<EOF
+VM '$VM_NAME' was created from an image without /sbin/init.
+Delete it with 'scripts/apple-vm delete', then run this command again.
+EOF
+		fi
+		exit 1
+	fi
+
+	detect_dns
+	if [ -n "$VM_DNS" ]; then
+		echo "Configuring guest DNS resolver '$VM_DNS'..."
+		printf 'nameserver %s\n' "$VM_DNS" |
+			container machine run \
+				--name "$VM_NAME" \
+				--root \
+				--interactive \
+				-- /usr/bin/tee /etc/resolv.conf >/dev/null
+	fi
+
+	echo "VM '$VM_NAME' is ready."
+	echo "Open it with: scripts/apple-vm shell"
+}
+
+command=${1:-}
+if [ "$#" -gt 0 ]; then
+	shift
+fi
+
+case "$command" in
+	help|-h|--help)
+		usage
+		exit 0
+		;;
+esac
+
+require_container
+
+case "$command" in
+	up)
+		up
+		;;
+	shell)
+		ensure_machine
+		container machine run \
+			--name "$VM_NAME" \
+			--workdir "$REPO_DIR"
+		;;
+	test)
+		ensure_machine
+		container machine run \
+			--name "$VM_NAME" \
+			--workdir "$REPO_DIR" \
+			-- go test ./...
+		;;
+	run)
+		ensure_machine
+		container machine run \
+			--name "$VM_NAME" \
+			--root \
+			--workdir "$REPO_DIR" \
+			-- go build -o /tmp/homelabd .
+		container machine run \
+			--name "$VM_NAME" \
+			--root \
+			--workdir "$REPO_DIR" \
+			-- /tmp/homelabd
+		;;
+	exec)
+		if [ "$#" -eq 0 ]; then
+			echo "Usage: scripts/apple-vm exec <command> [arguments]" >&2
+			exit 2
+		fi
+		ensure_machine
+		container machine run \
+			--name "$VM_NAME" \
+			--workdir "$REPO_DIR" \
+			-- "$@"
+		;;
+	status)
+		ensure_machine
+		container machine inspect "$VM_NAME"
+		;;
+	stop)
+		ensure_machine
+		container machine stop "$VM_NAME"
+		;;
+	delete)
+		if ! machine_exists; then
+			echo "VM '$VM_NAME' does not exist."
+			exit 0
+		fi
+		printf "Delete VM '%s' and its filesystem? [y/N] " "$VM_NAME"
+		read -r answer
+		case "$answer" in
+			y|Y|yes|YES)
+				container machine delete "$VM_NAME"
+				;;
+			*)
+				echo "Cancelled."
+				;;
+		esac
+		;;
+	*)
+		usage >&2
+		exit 2
+		;;
+esac

@@ -1,0 +1,11 @@
+{
+  "lsp": {
+    "gopls": {
+      "binary": {
+        "env": {
+          "GOOS": "linux"
+        }
+      }
+    }
+  }
+}

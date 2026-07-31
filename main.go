@@ -21,13 +21,19 @@ var pciBDFPattern = regexp.MustCompile(
 )
 
 type NetworkInterface struct {
-	Name  string                `json:"name"`
-	Type  string                `json:"type"`
-	Index int                   `json:"index"`
-	Mac   net.HardwareAddr      `json:"mac"`
-	MTU   int                   `json:"mtu"`
-	State netlink.LinkOperState `json:"state"`
-	Addrs []netlink.Addr        `json:"addrs"`
+	Name      string           `json:"name"`
+	Type      string           `json:"type"`
+	Index     int              `json:"index"`
+	MAC       string           `json:"mac"`
+	MTU       int              `json:"mtu"`
+	State     string           `json:"state"`
+	Addresses []NetworkAddress `json:"addresses"`
+}
+
+type NetworkAddress struct {
+	Address      string `json:"address"`
+	PrefixLength int    `json:"prefix_length"`
+	Family       string `json:"family"`
 }
 
 type OSInfo struct {
@@ -443,29 +449,57 @@ func DiscoverNetworkInfo() ([]NetworkInterface, error) {
 	}
 
 	for _, link := range links {
-		iface := NetworkInterface{}
 		attrs := link.Attrs()
-		iface.Name = attrs.Name
-		iface.Type = link.Type()
-		iface.Mac = attrs.HardwareAddr
-		iface.MTU = attrs.MTU
-		iface.State = attrs.OperState
+		iface := NetworkInterface{
+			Name:  attrs.Name,
+			Type:  link.Type(),
+			Index: attrs.Index,
+			MAC:   attrs.HardwareAddr.String(),
+			MTU:   attrs.MTU,
+			State: attrs.OperState.String(),
+		}
 
 		addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
 		if err != nil {
 			return []NetworkInterface{}, err
 		}
 
-		var parsedAddrs []netlink.Addr
+		iface.Addresses = make([]NetworkAddress, 0, len(addrs))
 		for _, addr := range addrs {
-			parsedAddrs = append(parsedAddrs, addr)
+			parsed, ok := networkAddressFromNetlink(addr)
+			if ok {
+				iface.Addresses = append(iface.Addresses, parsed)
+			}
 		}
 
-		iface.Addrs = addrs
 		ifaces = append(ifaces, iface)
 	}
 
 	return ifaces, nil
+}
+
+func networkAddressFromNetlink(addr netlink.Addr) (NetworkAddress, bool) {
+	if addr.IPNet == nil || addr.IP == nil {
+		return NetworkAddress{}, false
+	}
+
+	prefixLength, bits := addr.Mask.Size()
+	if prefixLength < 0 {
+		return NetworkAddress{}, false
+	}
+
+	family := "ipv6"
+	if addr.IP.To4() != nil {
+		family = "ipv4"
+	} else if bits != net.IPv6len*8 {
+		return NetworkAddress{}, false
+	}
+
+	return NetworkAddress{
+		Address:      addr.IP.String(),
+		PrefixLength: prefixLength,
+		Family:       family,
+	}, true
 }
 
 func prettyPrint(v any) error {

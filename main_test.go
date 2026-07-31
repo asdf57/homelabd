@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
+
+	"github.com/vishvananda/netlink"
 )
 
 func TestParseCPUInfo(t *testing.T) {
@@ -142,6 +146,86 @@ func TestParseCacheSizeKB(t *testing.T) {
 			t.Errorf("parseCacheSizeKB(%q) error = %v", test.input, err)
 		} else if got != test.want {
 			t.Errorf("parseCacheSizeKB(%q) = %d, want %d", test.input, got, test.want)
+		}
+	}
+}
+
+func TestNetworkAddressFromNetlink(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		cidr      string
+		want      NetworkAddress
+		wantValid bool
+	}{
+		{
+			name: "IPv4",
+			cidr: "192.0.2.10/24",
+			want: NetworkAddress{
+				Address:      "192.0.2.10",
+				PrefixLength: 24,
+				Family:       "ipv4",
+			},
+			wantValid: true,
+		},
+		{
+			name: "IPv6",
+			cidr: "2001:db8::10/64",
+			want: NetworkAddress{
+				Address:      "2001:db8::10",
+				PrefixLength: 64,
+				Family:       "ipv6",
+			},
+			wantValid: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ip, network, err := net.ParseCIDR(test.cidr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			network.IP = ip
+
+			got, valid := networkAddressFromNetlink(netlink.Addr{IPNet: network})
+			if valid != test.wantValid {
+				t.Fatalf("valid = %v, want %v", valid, test.wantValid)
+			}
+			if got != test.want {
+				t.Errorf("networkAddressFromNetlink() = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestNetworkInterfaceJSONUsesAPIPrimitives(t *testing.T) {
+	iface := NetworkInterface{
+		Name:  "eth0",
+		Type:  "device",
+		Index: 2,
+		MAC:   "02:42:c0:00:02:0a",
+		MTU:   1500,
+		State: "up",
+		Addresses: []NetworkAddress{
+			{
+				Address:      "192.0.2.10",
+				PrefixLength: 24,
+				Family:       "ipv4",
+			},
+		},
+	}
+
+	data, err := json.Marshal(iface)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := string(data)
+	for _, want := range []string{
+		`"mac":"02:42:c0:00:02:0a"`,
+		`"state":"up"`,
+		`"addresses":[{"address":"192.0.2.10","prefix_length":24,"family":"ipv4"}]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("JSON %s does not contain %s", got, want)
 		}
 	}
 }

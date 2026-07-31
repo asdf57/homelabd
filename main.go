@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vishvananda/netlink"
 )
@@ -513,28 +515,47 @@ func prettyPrint(v any) error {
 }
 
 func main() {
-	disks, err := DiscoverDisks()
-	if err != nil {
-		return
-	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	sys_info, err := DiscoverSysInfo()
-	if err != nil {
-		return
-	}
+	logger.Info("homelabd starting")
 
-	cpu_info, err := ReadCpuInfo()
-	if err != nil {
-		return
-	}
+	for {
+		disks, err := DiscoverDisks()
+		if err != nil {
+			logger.Error("failed to discover disks",
+				"error", err,
+			)
+		} else {
+			prettyPrint(disks)
+		}
 
-	net_info, err := DiscoverNetworkInfo()
-	if err != nil {
-		return
-	}
+		sys_info, err := DiscoverSysInfo()
+		if err != nil {
+			logger.Error("failed to discover system info",
+				"error", err,
+			)
+		} else {
+			prettyPrint(sys_info)
+		}
 
-	prettyPrint(disks)
-	prettyPrint(sys_info)
-	prettyPrint(cpu_info)
-	prettyPrint(net_info)
+		cpu_info, err := ReadCpuInfo()
+		if err != nil {
+			logger.Error("failed to discover cpu info",
+				"error", err,
+			)
+		} else {
+			prettyPrint(cpu_info)
+		}
+
+		net_info, err := DiscoverNetworkInfo()
+		if err != nil {
+			logger.Error("failed to discover network info",
+				"error", err,
+			)
+		} else {
+			prettyPrint(net_info)
+		}
+
+		time.Sleep(30 * time.Second)
+	}
 }

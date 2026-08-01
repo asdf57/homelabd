@@ -22,6 +22,13 @@ var pciBDFPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`,
 )
 
+type MachineReport struct {
+	Storage    []LSBLKDevice      `json:"storage"`
+	System     IdentityInfo       `json:"system"`
+	Cpu        CPUInfo            `json:"cpu"`
+	Interfaces []NetworkInterface `json:"interfaces"`
+}
+
 type NetworkInterface struct {
 	Name      string           `json:"name"`
 	Type      string           `json:"type"`
@@ -514,47 +521,61 @@ func prettyPrint(v any) error {
 	return nil
 }
 
+func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
+	diskInfo, err := DiscoverDisks()
+	if err != nil {
+		logger.Error("failed to discover disks",
+			"error", err,
+		)
+		return MachineReport{}, err
+	}
+
+	sysInfo, err := DiscoverSysInfo()
+	if err != nil {
+		logger.Error("failed to discover system info",
+			"error", err,
+		)
+		return MachineReport{}, err
+	}
+
+	cpuInfo, err := ReadCpuInfo()
+	if err != nil {
+		logger.Error("failed to discover cpu info",
+			"error", err,
+		)
+		return MachineReport{}, err
+	}
+
+	ifaceInfo, err := DiscoverNetworkInfo()
+	if err != nil {
+		logger.Error("failed to discover network info",
+			"error", err,
+		)
+		return MachineReport{}, err
+	}
+
+	return MachineReport{
+		Storage:    diskInfo,
+		System:     sysInfo,
+		Cpu:        *cpuInfo,
+		Interfaces: ifaceInfo,
+	}, nil
+
+}
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	logger.Info("homelabd starting")
 
 	for {
-		disks, err := DiscoverDisks()
+
+		report, err := BuildMachineReport(logger)
 		if err != nil {
-			logger.Error("failed to discover disks",
-				"error", err,
-			)
-		} else {
-			prettyPrint(disks)
+			logger.Error("failed to build machine report", "error", err)
 		}
 
-		sys_info, err := DiscoverSysInfo()
-		if err != nil {
-			logger.Error("failed to discover system info",
-				"error", err,
-			)
-		} else {
-			prettyPrint(sys_info)
-		}
-
-		cpu_info, err := ReadCpuInfo()
-		if err != nil {
-			logger.Error("failed to discover cpu info",
-				"error", err,
-			)
-		} else {
-			prettyPrint(cpu_info)
-		}
-
-		net_info, err := DiscoverNetworkInfo()
-		if err != nil {
-			logger.Error("failed to discover network info",
-				"error", err,
-			)
-		} else {
-			prettyPrint(net_info)
-		}
+		fmt.Printf("%+v", report)
 
 		time.Sleep(30 * time.Second)
 	}

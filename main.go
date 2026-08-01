@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -566,17 +568,42 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	logger.Info("homelabd starting")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
-	for {
+	scanDone := make(chan struct{})
 
-		report, err := BuildMachineReport(logger)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+
+		defer close(scanDone)
+		defer ticker.Stop()
+
+		// Give the scan one initial run
+		_, err := BuildMachineReport(logger)
 		if err != nil {
 			logger.Error("failed to build machine report", "error", err)
 		}
 
-		fmt.Printf("%+v", report)
+		logger.Info("performed initial scan")
 
-		time.Sleep(30 * time.Second)
-	}
+		for {
+			select {
+			case t := <-ticker.C:
+
+				logger.Info("event time", "tickTime", t.String())
+				_, err := BuildMachineReport(logger)
+				if err != nil {
+					logger.Error("failed to build machine report", "error", err)
+				}
+
+			case <-ctx.Done():
+				logger.Info("shutdown requested")
+				return
+			}
+		}
+	}()
+
+	<-ctx.Done()
+	<-scanDone
 }

@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -17,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asdf57/homelabd/utils"
 	"github.com/vishvananda/netlink"
 )
 
@@ -570,6 +573,12 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
+	config, err := utils.LoadConfig()
+	if err != nil {
+		logger.Error("failed to load config", "error", err)
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -594,10 +603,34 @@ func main() {
 			case t := <-ticker.C:
 
 				logger.Info("event time", "tickTime", t.String())
-				_, err := BuildMachineReport(logger)
+				report, err := BuildMachineReport(logger)
 				if err != nil {
 					logger.Error("failed to build machine report", "error", err)
 				}
+
+				// Send to API server
+				jsonBytes, err := json.Marshal(report)
+				if err != nil {
+					logger.Error("failed to marshal report", "error", err)
+					continue
+				}
+
+				bodyBuffer := bytes.NewBuffer(jsonBytes)
+
+				resp, err := http.Post(config.APIEndpoint+"/api/v1alpha1/machine-reports", "application/json", bodyBuffer)
+				if err != nil {
+					logger.Error("failed to submit machine report", "error", err)
+					continue
+				}
+				defer resp.Body.Close()
+
+				respBytes, err := io.ReadAll(resp.Body)
+				if err != nil {
+					fmt.Printf("Error reading response body: %v\n", err)
+					return
+				}
+
+				logger.Info("machine report submitted", "status", resp.Status, "body", string(respBytes))
 
 			case <-ctx.Done():
 				logger.Info("shutdown requested")

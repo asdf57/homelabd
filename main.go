@@ -573,7 +573,7 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	config, err := utils.LoadConfig()
+	config, err := utils.LoadConfig(logger)
 	if err != nil {
 		logger.Error("failed to load config", "error", err)
 		return
@@ -585,7 +585,7 @@ func main() {
 	scanDone := make(chan struct{})
 
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(config.PollingInterval)
 
 		defer close(scanDone)
 		defer ticker.Stop()

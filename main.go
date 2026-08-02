@@ -25,6 +25,7 @@ var pciBDFPattern = regexp.MustCompile(
 )
 
 type MachineReport struct {
+	ObservedAt time.Time          `json:"observed_at"`
 	Storage    []LSBLKDevice      `json:"storage"`
 	System     IdentityInfo       `json:"system"`
 	Cpu        CPUInfo            `json:"cpu"`
@@ -557,6 +558,7 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 	}
 
 	return MachineReport{
+		ObservedAt: time.Now().UTC(),
 		Storage:    diskInfo,
 		System:     sysInfo,
 		Cpu:        *cpuInfo,

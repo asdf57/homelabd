@@ -27,12 +27,26 @@ var pciBDFPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`,
 )
 
-type MachineReport struct {
+type Metadata struct {
+	Name        string            `json:"name"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+type MachineReportSpec struct {
 	ObservedAt time.Time          `json:"observed_at"`
 	Storage    []LSBLKDevice      `json:"storage"`
 	System     IdentityInfo       `json:"system"`
 	Cpu        CPUInfo            `json:"cpu"`
 	Interfaces []NetworkInterface `json:"interfaces"`
+	LLDPInfo   []LLDPInterfaceGroup
+}
+
+type MachineReport struct {
+	ApiVersion string            `json:"apiVersion"`
+	Kind       string            `json:"kind"`
+	Metadata   Metadata          `json:"metadata"`
+	Spec       MachineReportSpec `json:"spec"`
 }
 
 type NetworkInterface struct {
@@ -197,20 +211,28 @@ func DiscoverSysInfo() (IdentityInfo, error) {
 	}, nil
 }
 
-// func cStrToString(data []byte) string {
-// 	res := bytes.IndexByte(data, 0)
-// 	if res == -1 {
-// 		res =
-// 	}
-// }
+func DiscoverLLDP() ([]LLDPInterfaceGroup, error) {
+	cmd := exec.Command(
+		"lldpcli",
+		"-f",
+		"json0",
+		"show",
+		"neighbors",
+		"details",
+	)
 
-// func DiscoverOSInfo() (OSInfo, error) {
-// 	var u unix.Utsname
-// 	if err := unix.Uname(&u); err != nil {
-// 		return OSInfo{}, err
-// 	}
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("run lldpcli: %w", err)
+	}
 
-// }
+	var result LLDPOutput
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("decode lldp output: %w", err)
+	}
+
+	return result.LLDP, nil
+}
 
 func DiscoverDisks() ([]LSBLKDevice, error) {
 	cmd := exec.Command(
@@ -560,12 +582,30 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 		return MachineReport{}, err
 	}
 
-	return MachineReport{
+	lldpInfo, err := DiscoverLLDP()
+	if err != nil {
+		logger.Error("failed to discover lldp info",
+			"error", err,
+		)
+		return MachineReport{}, err
+	}
+
+	machineSpec := MachineReportSpec{
 		ObservedAt: time.Now().UTC(),
 		Storage:    diskInfo,
 		System:     sysInfo,
 		Cpu:        *cpuInfo,
 		Interfaces: ifaceInfo,
+		LLDPInfo:   lldpInfo,
+	}
+
+	return MachineReport{
+		ApiVersion: "homelab.io/v1alpha1",
+		Kind:       "MachineReport",
+		Metadata: Metadata{
+			Name: "report",
+		},
+		Spec: machineSpec,
 	}, nil
 
 }

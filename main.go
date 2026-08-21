@@ -34,12 +34,12 @@ type Metadata struct {
 }
 
 type MachineReportSpec struct {
-	ObservedAt time.Time          `json:"observed_at"`
-	Storage    []LSBLKDevice      `json:"storage"`
-	System     IdentityInfo       `json:"system"`
-	Cpu        CPUInfo            `json:"cpu"`
-	Interfaces []NetworkInterface `json:"interfaces"`
-	LLDPInfo   []LLDPInterfaceGroup
+	ObservedAt time.Time            `json:"observed_at"`
+	Storage    []LSBLKDevice        `json:"storage"`
+	System     IdentityInfo         `json:"system"`
+	Cpu        CPUInfo              `json:"cpu"`
+	Interfaces []NetworkInterface   `json:"interfaces"`
+	LLDPInfo   []LLDPInterfaceGroup `json:"lldp_info"`
 }
 
 type MachineReport struct {

@@ -2,14 +2,12 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -26,28 +24,6 @@ import (
 var pciBDFPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`,
 )
-
-type Metadata struct {
-	Name        string            `json:"name"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-}
-
-type MachineReportSpec struct {
-	ObservedAt time.Time            `json:"observed_at"`
-	Storage    []LSBLKDevice        `json:"storage"`
-	System     IdentityInfo         `json:"system"`
-	Cpu        CPUInfo              `json:"cpu"`
-	Interfaces []NetworkInterface   `json:"interfaces"`
-	LLDPInfo   []LLDPInterfaceGroup `json:"lldp_info"`
-}
-
-type MachineReport struct {
-	ApiVersion string            `json:"apiVersion"`
-	Kind       string            `json:"kind"`
-	Metadata   Metadata          `json:"metadata"`
-	Spec       MachineReportSpec `json:"spec"`
-}
 
 type NetworkInterface struct {
 	Name      string           `json:"name"`
@@ -549,13 +525,13 @@ func prettyPrint(v any) error {
 	return nil
 }
 
-func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
+func BuildMachineReport(logger *slog.Logger) (utils.MachineReport, error) {
 	diskInfo, err := DiscoverDisks()
 	if err != nil {
 		logger.Error("failed to discover disks",
 			"error", err,
 		)
-		return MachineReport{}, err
+		return utils.MachineReport{}, err
 	}
 
 	sysInfo, err := DiscoverSysInfo()
@@ -563,7 +539,7 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 		logger.Error("failed to discover system info",
 			"error", err,
 		)
-		return MachineReport{}, err
+		return utils.MachineReport{}, err
 	}
 
 	cpuInfo, err := ReadCpuInfo()
@@ -571,7 +547,7 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 		logger.Error("failed to discover cpu info",
 			"error", err,
 		)
-		return MachineReport{}, err
+		return utils.MachineReport{}, err
 	}
 
 	ifaceInfo, err := DiscoverNetworkInfo()
@@ -579,7 +555,7 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 		logger.Error("failed to discover network info",
 			"error", err,
 		)
-		return MachineReport{}, err
+		return utils.MachineReport{}, err
 	}
 
 	lldpInfo, err := DiscoverLLDP()
@@ -587,27 +563,14 @@ func BuildMachineReport(logger *slog.Logger) (MachineReport, error) {
 		logger.Error("failed to discover lldp info",
 			"error", err,
 		)
-		return MachineReport{}, err
+		return utils.MachineReport{}, err
 	}
 
-	machineSpec := MachineReportSpec{
-		ObservedAt: time.Now().UTC(),
-		Storage:    diskInfo,
-		System:     sysInfo,
-		Cpu:        *cpuInfo,
-		Interfaces: ifaceInfo,
-		LLDPInfo:   lldpInfo,
-	}
+	return newMachineReport(time.Now().UTC(), diskInfo, sysInfo, *cpuInfo, ifaceInfo, lldpInfo)
+}
 
-	return MachineReport{
-		ApiVersion: "homelab.io/v1alpha1",
-		Kind:       "MachineReport",
-		Metadata: Metadata{
-			Name: "report",
-		},
-		Spec: machineSpec,
-	}, nil
-
+func InstallSSHKey() error {
+	return nil
 }
 
 func main() {
@@ -618,6 +581,8 @@ func main() {
 		logger.Error("failed to load config", "error", err)
 		return
 	}
+
+	stigmergyApi := utils.NewStigmergyApi(logger, &config, nil)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -641,37 +606,22 @@ func main() {
 		for {
 			select {
 			case t := <-ticker.C:
-
 				logger.Info("event time", "tickTime", t.String())
 				report, err := BuildMachineReport(logger)
 				if err != nil {
 					logger.Error("failed to build machine report", "error", err)
-				}
-
-				// Send to API server
-				jsonBytes, err := json.Marshal(report)
-				if err != nil {
-					logger.Error("failed to marshal report", "error", err)
 					continue
 				}
 
-				bodyBuffer := bytes.NewBuffer(jsonBytes)
-
-				resp, err := http.Post(config.APIEndpoint+"/api/v1alpha1/machine-reports", "application/json", bodyBuffer)
-				if err != nil {
+				if err := stigmergyApi.UploadMachineReport(report); err != nil {
 					logger.Error("failed to submit machine report", "error", err)
 					continue
 				}
-				defer resp.Body.Close()
 
-				respBytes, err := io.ReadAll(resp.Body)
-				if err != nil {
-					fmt.Printf("Error reading response body: %v\n", err)
-					return
+				if err := InstallSSHKey(); err != nil {
+					logger.Error("failed to install SSH key(s)", "error", err)
+					continue
 				}
-
-				logger.Info("machine report submitted", "status", resp.Status, "body", string(respBytes))
-
 			case <-ctx.Done():
 				logger.Info("shutdown requested")
 				return

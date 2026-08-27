@@ -618,6 +618,21 @@ func main() {
 					continue
 				}
 
+				location, err := utils.MachineLocationFromLLDP(report.Spec.LLDPInfo)
+				if err != nil {
+					logger.Error("failed to derive machine location", "error", err)
+					continue
+				}
+				serverSelector := utils.ServerMachineSelector{Location: location}
+
+				// try to see if we can find out Server
+				serverName, err := stigmergyApi.FindServerFromLocation(serverSelector)
+				if err != nil {
+					logger.Error("failed to find server from location", "error", err)
+					continue
+				}
+				logger.Info("found server for LLDP location", "server", serverName, "lldpPort", location.LLDPPort, "switchMAC", location.SwitchMAC)
+
 				if err := InstallSSHKey(); err != nil {
 					logger.Error("failed to install SSH key(s)", "error", err)
 					continue

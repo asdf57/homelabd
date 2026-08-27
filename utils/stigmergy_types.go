@@ -30,6 +30,10 @@ type MachineLocation struct {
 	SwitchMAC string `json:"switch_mac"`
 }
 
+type ListMetadata struct {
+	ResourceVersion string `json:"resourceVersion"`
+}
+
 type MachineReport struct {
 	APIVersion string            `json:"apiVersion"`
 	Kind       string            `json:"kind"`
@@ -181,6 +185,13 @@ type Server struct {
 	Metadata   Metadata      `json:"metadata"`
 	Spec       ServerSpec    `json:"spec"`
 	Status     *ServerStatus `json:"status,omitempty"`
+}
+
+type ServerList struct {
+	APIVersion string       `json:"apiVersion"`
+	Items      []Server     `json:"items"`
+	Kind       string       `json:"kind"`
+	Metadata   ListMetadata `json:"metadata"`
 }
 
 type ServerSpec struct {

@@ -58,42 +58,42 @@ func (s *StigmergyApi) UploadMachineReport(report MachineReport) error {
 	return nil
 }
 
-func (s *StigmergyApi) FindServerFromLocation(location ServerMachineSelector) (string, error) {
+func (s *StigmergyApi) FindServerFromLocation(location ServerMachineSelector) (*Server, error) {
 	resp, err := s.httpClient.Get(fmt.Sprintf("%s/api/v1alpha1/servers", s.config.APIEndpoint))
 	if err != nil {
 		s.logger.Error("failed to get servers", "error", err)
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("list servers: Stigmergy returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("list servers: Stigmergy returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	var servers ServerList
 	if err := json.NewDecoder(resp.Body).Decode(&servers); err != nil {
 		s.logger.Error("failed to decode servers response", "error", err)
-		return "", err
+		return nil, err
 	}
 
 	target := canonicalMachineLocation(location.Location)
 	if target.LLDPPort == "" || target.SwitchMAC == "" {
-		return "", fmt.Errorf("cannot find server without a complete LLDP location")
+		return nil, fmt.Errorf("cannot find server without a complete LLDP location")
 	}
-	var match string
+	var match *Server
 	for _, server := range servers.Items {
 		if canonicalMachineLocation(server.Spec.MachineSelector.Location) == target {
-			if match != "" {
-				return "", fmt.Errorf("multiple servers found for LLDP location %s/%s", target.SwitchMAC, target.LLDPPort)
+			if match != nil {
+				return nil, fmt.Errorf("multiple servers found for LLDP location %s/%s", target.SwitchMAC, target.LLDPPort)
 			}
-			match = server.Metadata.Name
+			match = &server
 		}
 	}
-	if match != "" {
+	if match != nil {
 		return match, nil
 	}
 
-	return "", fmt.Errorf("no server found for location: %+v", location)
+	return nil, fmt.Errorf("no server found for location: %+v", location)
 }
 
 // MachineLocationFromLLDP derives the same switch/port identity that

@@ -569,7 +569,22 @@ func BuildMachineReport(logger *slog.Logger) (utils.MachineReport, error) {
 	return newMachineReport(time.Now().UTC(), diskInfo, sysInfo, *cpuInfo, ifaceInfo, lldpInfo)
 }
 
-func InstallSSHKey() error {
+func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
+	for _, key := range server.Status.SSH.AuthorizedKeys {
+		logger.Info(
+			"discovered SSH key to install",
+			"accessGrantName",
+			key.AccessGrantRef.Name,
+			"accessGrantUid",
+			key.AccessGrantRef.UID,
+			"fingerprint",
+			key.Fingerprint,
+			"loginUser",
+			key.LoginUser,
+			"publicKey",
+			key.PublicKey,
+		)
+	}
 	return nil
 }
 
@@ -626,14 +641,14 @@ func main() {
 				serverSelector := utils.ServerMachineSelector{Location: location}
 
 				// try to see if we can find out Server
-				serverName, err := stigmergyApi.FindServerFromLocation(serverSelector)
+				server, err := stigmergyApi.FindServerFromLocation(serverSelector)
 				if err != nil {
 					logger.Error("failed to find server from location", "error", err)
 					continue
 				}
-				logger.Info("found server for LLDP location", "server", serverName, "lldpPort", location.LLDPPort, "switchMAC", location.SwitchMAC)
+				logger.Info("found server for LLDP location", "server", server.Metadata.Name, "location", location)
 
-				if err := InstallSSHKey(); err != nil {
+				if err := InstallSSHKey(logger, server); err != nil {
 					logger.Error("failed to install SSH key(s)", "error", err)
 					continue
 				}

@@ -48,13 +48,18 @@ func (s *StigmergyApi) UploadMachineReport(report MachineReport) error {
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("Error reading response body: %v\n", err)
-		return err
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("submit machine report: Stigmergy returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	s.logger.Info("machine report submitted", "status", resp.Status, "body", string(respBytes))
+	// _, err := io.ReadAll(resp.Body)
+	// if err != nil {
+	// 	fmt.Printf("Error reading response body: %v\n", err)
+	// 	return err
+	// }
+
+	s.logger.Info("machine report submitted", "status", resp.Status)
 	return nil
 }
 

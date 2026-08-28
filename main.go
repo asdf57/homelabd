@@ -587,7 +587,7 @@ func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
 			key.PublicKey,
 		)
 
-		keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", key.Fingerprint)
+		keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", key.LoginUser)
 
 		if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
 			if os.IsNotExist(err) {

@@ -1,0 +1,29 @@
+[Unit]
+Description=Homelab agent
+After=network-online.target lldpd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=homelabd
+Group=homelabd
+SupplementaryGroups=lldpd
+
+ExecStart=/usr/local/bin/homelabd
+
+Environment="POLLING_INTERVAL=1s"
+Environment="API_ENDPOINT=http://10.1.1.42:8080"
+
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+
+ReadWritePaths=/var/lib/homelab
+
+[Install]
+WantedBy=multi-user.target

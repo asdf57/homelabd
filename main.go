@@ -570,9 +570,11 @@ func BuildMachineReport(logger *slog.Logger) (utils.MachineReport, error) {
 }
 
 func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
+	// homelabd shall own /var/lib/homelab/authorized-keys/
+	// homelabd shall use AuthorizedKeysFile
 	for _, key := range server.Status.SSH.AuthorizedKeys {
 		logger.Info(
-			"discovered SSH key to install",
+			"discovered SSH key",
 			"accessGrantName",
 			key.AccessGrantRef.Name,
 			"accessGrantUid",
@@ -584,6 +586,27 @@ func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
 			"publicKey",
 			key.PublicKey,
 		)
+
+		keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", key.Fingerprint)
+
+		if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
+			if os.IsNotExist(err) {
+				logger.Warn("/var/lib/homelab/authorized-keys/ does not exist, creating it")
+				if err := os.MkdirAll("/var/lib/homelab/authorized-keys/", 0700); err != nil {
+					logger.Error("failed to create directory for SSH keys", "error", err)
+					return err
+				}
+				if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
+					logger.Error("failed to write SSH key", "error", err)
+					return err
+				}
+			}
+
+			logger.Error("failed to write SSH key", "error", err)
+			return err
+		}
+
+		logger.Info("installed SSH key", "path", keyPath, "loginUser", key.LoginUser)
 	}
 	return nil
 }

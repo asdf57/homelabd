@@ -572,7 +572,46 @@ func BuildMachineReport(logger *slog.Logger) (utils.MachineReport, error) {
 func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
 	// homelabd shall own /var/lib/homelab/authorized-keys/
 	// homelabd shall use AuthorizedKeysFile
-	for _, key := range server.Status.SSH.AuthorizedKeys {
+	sshKeys := make(map[string]utils.ServerSSHAuthorizedKeyStatus)
+	for _, keyBlob := range server.Status.SSH.AuthorizedKeys {
+		sshKeys[keyBlob.LoginUser] = keyBlob
+	}
+
+	// See what keys are currently installed in /var/lib/homelab/authorized-keys/
+	files, err := os.ReadDir("/var/lib/homelab/authorized-keys/")
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Error("failed to read SSH keys directory", "error", err)
+			return err
+		}
+	}
+
+	for _, file := range files {
+		if !file.Type().IsRegular() {
+			continue
+		}
+
+		loginUser := file.Name()
+		if _, ok := sshKeys[loginUser]; !ok {
+			logger.Info("removing SSH key for user not in server status",
+				"loginUser", loginUser,
+			)
+			keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", loginUser)
+			if err := os.Remove(keyPath); err != nil {
+				if os.IsNotExist(err) {
+					logger.Warn("SSH key file does not exist, skipping removal",
+						"loginUser", loginUser,
+						"path", keyPath,
+					)
+					continue
+				}
+				logger.Error("failed to remove SSH key", "error", err)
+				return err
+			}
+		}
+	}
+
+	for _, key := range sshKeys {
 		logger.Info(
 			"discovered SSH key",
 			"accessGrantName",

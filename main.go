@@ -24,6 +24,7 @@ import (
 var pciBDFPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`,
 )
+var sshLoginUserPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 type NetworkInterface struct {
 	Name      string           `json:"name"`
@@ -570,20 +571,26 @@ func BuildMachineReport(logger *slog.Logger) (utils.MachineReport, error) {
 }
 
 func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
-	// homelabd shall own /var/lib/homelab/authorized-keys/
-	// homelabd shall use AuthorizedKeysFile
-	sshKeys := make(map[string]utils.ServerSSHAuthorizedKeyStatus)
-	for _, keyBlob := range server.Status.SSH.AuthorizedKeys {
-		sshKeys[keyBlob.LoginUser] = keyBlob
+	return installSSHKeys(logger, server, "/var/lib/homelab/authorized-keys")
+}
+
+func installSSHKeys(logger *slog.Logger, server *utils.Server, directory string) error {
+	sshKeys := make(map[string][]utils.ServerSSHAuthorizedKeyStatus)
+	if server.Status != nil && server.Status.SSH != nil {
+		for _, key := range server.Status.SSH.AuthorizedKeys {
+			if key.LoginUser == "." || key.LoginUser == ".." || !sshLoginUserPattern.MatchString(key.LoginUser) || filepath.Base(key.LoginUser) != key.LoginUser {
+				return fmt.Errorf("invalid SSH login user %q", key.LoginUser)
+			}
+			sshKeys[key.LoginUser] = append(sshKeys[key.LoginUser], key)
+		}
 	}
 
-	// See what keys are currently installed in /var/lib/homelab/authorized-keys/
-	files, err := os.ReadDir("/var/lib/homelab/authorized-keys/")
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return fmt.Errorf("create SSH keys directory: %w", err)
+	}
+	files, err := os.ReadDir(directory)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.Error("failed to read SSH keys directory", "error", err)
-			return err
-		}
+		return fmt.Errorf("read SSH keys directory: %w", err)
 	}
 
 	for _, file := range files {
@@ -596,7 +603,7 @@ func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
 			logger.Info("removing SSH key for user not in server status",
 				"loginUser", loginUser,
 			)
-			keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", loginUser)
+			keyPath := filepath.Join(directory, loginUser)
 			if err := os.Remove(keyPath); err != nil {
 				if os.IsNotExist(err) {
 					logger.Warn("SSH key file does not exist, skipping removal",
@@ -611,43 +618,56 @@ func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
 		}
 	}
 
-	for _, key := range sshKeys {
-		logger.Info(
-			"discovered SSH key",
-			"accessGrantName",
-			key.AccessGrantRef.Name,
-			"accessGrantUid",
-			key.AccessGrantRef.UID,
-			"fingerprint",
-			key.Fingerprint,
-			"loginUser",
-			key.LoginUser,
-			"publicKey",
-			key.PublicKey,
-		)
-
-		keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", key.LoginUser)
-
-		if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
-			if os.IsNotExist(err) {
-				logger.Warn("/var/lib/homelab/authorized-keys/ does not exist, creating it")
-				if err := os.MkdirAll("/var/lib/homelab/authorized-keys/", 0700); err != nil {
-					logger.Error("failed to create directory for SSH keys", "error", err)
-					return err
-				}
-				if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
-					logger.Error("failed to write SSH key", "error", err)
-					return err
-				}
+	for loginUser, keys := range sshKeys {
+		var content strings.Builder
+		for _, key := range keys {
+			publicKey := strings.TrimSpace(key.PublicKey)
+			if publicKey == "" {
+				return fmt.Errorf("SSH key %q for %q has an empty public key", key.Fingerprint, loginUser)
 			}
-
-			logger.Error("failed to write SSH key", "error", err)
-			return err
+			content.WriteString(publicKey)
+			content.WriteByte('\n')
 		}
 
-		logger.Info("installed SSH key", "path", keyPath, "loginUser", key.LoginUser)
+		keyPath := filepath.Join(directory, loginUser)
+		desired := []byte(content.String())
+		current, readErr := os.ReadFile(keyPath)
+		if readErr == nil && string(current) == string(desired) {
+			continue
+		}
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return fmt.Errorf("read SSH keys for %q: %w", loginUser, readErr)
+		}
+		if err := writeSSHKeysFile(keyPath, desired); err != nil {
+			return fmt.Errorf("write SSH keys for %q: %w", loginUser, err)
+		}
+		logger.Info("installed SSH keys", "path", keyPath, "loginUser", loginUser, "count", len(keys))
 	}
 	return nil
+}
+
+func writeSSHKeysFile(path string, content []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".authorized-keys-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer temporary.Close()
+	defer os.Remove(temporaryPath)
+
+	if err := temporary.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(content); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func main() {

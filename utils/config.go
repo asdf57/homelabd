@@ -39,7 +39,7 @@ func LoadConfig(logger *slog.Logger) (Config, error) {
 	}
 
 	return Config{
-		APIEndpoint:     envOr("API_ENDPOINT", "127.0.0.1:8080"),
+		APIEndpoint:     envOr("API_ENDPOINT", "http://127.0.0.1:8080"),
 		PollingInterval: interval,
 	}, nil
 }

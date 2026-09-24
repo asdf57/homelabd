@@ -13,7 +13,7 @@ SupplementaryGroups=lldpd
 ExecStart=/usr/local/bin/homelabd
 
 Environment="POLLING_INTERVAL=1s"
-Environment="API_ENDPOINT=http://10.1.1.42:8080"
+Environment="API_ENDPOINT=https://stigmergy.ryuugu.dev"
 
 Restart=on-failure
 RestartSec=5s

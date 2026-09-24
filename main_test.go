@@ -3,15 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/asdf57/homelabd/utils"
 	"github.com/vishvananda/netlink"
 )
 
@@ -232,78 +227,5 @@ func TestNetworkInterfaceJSONUsesAPIPrimitives(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("JSON %s does not contain %s", got, want)
 		}
-	}
-}
-
-func TestInstallSSHKeys(t *testing.T) {
-	directory := t.TempDir()
-	stalePath := filepath.Join(directory, "stale")
-	if err := os.WriteFile(stalePath, []byte("stale key\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	server := &utils.Server{Status: &utils.ServerStatus{SSH: &utils.ServerSSHStatus{
-		AuthorizedKeys: []utils.ServerSSHAuthorizedKeyStatus{
-			{LoginUser: "ansible", PublicKey: "ssh-ed25519 first first@example"},
-			{LoginUser: "ansible", PublicKey: "ssh-ed25519 second second@example\n"},
-			{LoginUser: "operator", PublicKey: "ssh-ed25519 third third@example"},
-		},
-	}}}
-
-	if err := installSSHKeys(testLogger(), server, directory); err != nil {
-		t.Fatalf("installSSHKeys() error = %v", err)
-	}
-
-	want := "ssh-ed25519 first first@example\nssh-ed25519 second second@example\n"
-	assertFileContentAndMode(t, filepath.Join(directory, "ansible"), want, 0o600)
-	assertFileContentAndMode(t, filepath.Join(directory, "operator"), "ssh-ed25519 third third@example\n", 0o600)
-	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
-		t.Errorf("stale key file still exists; os.Stat() error = %v", err)
-	}
-
-	if err := installSSHKeys(testLogger(), &utils.Server{}, directory); err != nil {
-		t.Fatalf("installSSHKeys() with no status error = %v", err)
-	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("key directory contains %d entries after empty status, want 0", len(entries))
-	}
-}
-
-func TestInstallSSHKeysRejectsUnsafeLoginUser(t *testing.T) {
-	server := &utils.Server{Status: &utils.ServerStatus{SSH: &utils.ServerSSHStatus{
-		AuthorizedKeys: []utils.ServerSSHAuthorizedKeyStatus{
-			{LoginUser: "../root", PublicKey: "ssh-ed25519 bad"},
-		},
-	}}}
-
-	err := installSSHKeys(testLogger(), server, t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "invalid SSH login user") {
-		t.Fatalf("installSSHKeys() error = %v, want invalid-login-user error", err)
-	}
-}
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-func assertFileContentAndMode(t *testing.T, path, want string, wantMode os.FileMode) {
-	t.Helper()
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(content) != want {
-		t.Errorf("%s content = %q, want %q", path, content, want)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != wantMode {
-		t.Errorf("%s mode = %o, want %o", path, info.Mode().Perm(), wantMode)
 	}
 }

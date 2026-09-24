@@ -62,30 +62,6 @@ sudo install -d \
     -m 0750 \
     /var/lib/homelab/authorized-keys
 
-log "INFO" "Installing the sshd authorized-keys helper"
-sudo install -d -o root -g root -m 0755 /usr/local/libexec
-sudo install \
-    -o root \
-    -g root \
-    -m 0755 \
-    "$REPO_ROOT/setup/homelabd-authorized-keys" \
-    /usr/local/libexec/homelabd-authorized-keys
-
-log "INFO" "Configuring sshd to read homelabd-managed keys"
-sudo install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
-sudo install \
-    -o root \
-    -g root \
-    -m 0644 \
-    "$REPO_ROOT/setup/sshd/10-homelabd.conf" \
-    /etc/ssh/sshd_config.d/10-homelabd.conf
-sudo rm -f /etc/ssh/sshd_config.d/90-homelabd.conf
-if ! sudo sshd -t; then
-    log "ERROR" "The sshd configuration is invalid; removing the homelabd drop-in"
-    sudo rm -f /etc/ssh/sshd_config.d/10-homelabd.conf
-    exit 1
-fi
-
 log "INFO" "Installing systemd service"
 sudo install \
     -o root \
@@ -106,8 +82,5 @@ if ! sudo systemctl restart homelabd.service; then
     sudo journalctl -u homelabd.service --no-pager
     exit 1
 fi
-
-log "INFO" "Reloading sshd"
-sudo systemctl reload sshd.service
 
 log "INFO" "homelabd service is running"

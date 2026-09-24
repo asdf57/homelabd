@@ -102,13 +102,13 @@ func TestFindServerFromLocationDecodesServerList(t *testing.T) {
 	})}
 	api := NewStigmergyApi(slog.New(slog.NewTextHandler(io.Discard, nil)), &Config{APIEndpoint: "http://stigmergy.test"}, client)
 
-	server, err := api.FindServerFromLocation(ServerMachineSelector{Location: MachineLocation{
+	name, err := api.FindServerFromLocation(ServerMachineSelector{Location: MachineLocation{
 		LLDPPort: " bridge/ether3 ", SwitchMAC: "D4:01:C3:27:91:67",
 	}})
 	if err != nil {
 		t.Fatalf("FindServerFromLocation() error = %v", err)
 	}
-	if server.Metadata.Name != "desktop" {
-		t.Fatalf("FindServerFromLocation() name = %q, want desktop", server.Metadata.Name)
+	if name != "desktop" {
+		t.Fatalf("FindServerFromLocation() = %q, want desktop", name)
 	}
 }

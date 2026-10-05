@@ -1,0 +1,95 @@
+#!/bin/bash -p
+# Fixed, local operation. Never accept caller-selected users, IDs, paths or keys.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV CDPATH
+umask 077
+[[ $# == 0 && $EUID == 0 ]] || { echo 'Run as root without arguments' >&2; exit 1; }
+
+fail() { echo "ansible-account: $*" >&2; exit 1; }
+safe_directory() {
+    [[ -d "$1" && ! -L "$1" ]] || fail "Unsafe directory: $1"
+    [[ $(/usr/bin/stat -c %u "$1") == 0 ]] || fail "Directory is not root-owned: $1"
+    local mode
+    mode=$(/usr/bin/stat -c %a "$1")
+    (( (8#$mode & 0022) == 0 )) || fail "Directory is writable by other users: $1"
+}
+safe_directory /run
+[[ ! -L /run/ansible-account.lock ]] || fail 'Unsafe lock file'
+exec 9>/run/ansible-account.lock
+/usr/bin/flock -x 9
+safe_directory /var
+safe_directory /var/lib
+if [[ ! -e /var/lib/ansible-account ]]; then
+    /usr/bin/install -d -o root -g root -m 0700 /var/lib/ansible-account
+fi
+safe_directory /var/lib/ansible-account
+safe_directory /home
+
+state=/var/lib/ansible-account/identity
+if [[ -e "$state" || -L "$state" ]]; then
+    [[ -f "$state" && ! -L "$state" && $(/usr/bin/stat -c %u "$state") == 0 && $(/usr/bin/stat -c %a "$state") == 600 ]] || fail 'Unsafe identity file'
+    identity=$(/usr/bin/cat "$state")
+    [[ "$identity" =~ ^([0-9]+):([0-9]+)$ ]] || fail 'Invalid identity file'
+    uid=${BASH_REMATCH[1]}
+    gid=${BASH_REMATCH[2]}
+    (( uid >= 1000 && uid < 60000 && gid >= 1000 && gid < 60000 )) || fail 'Identity is outside the normal user range'
+else
+    # Never grant sudo to a preexisting identity merely because its name matches.
+    ! /usr/bin/getent passwd ansible >/dev/null || fail 'Unmanaged ansible account already exists'
+    ! /usr/bin/getent group ansible >/dev/null || fail 'Unmanaged ansible group already exists'
+    [[ ! -e /home/ansible && ! -L /home/ansible ]] || fail 'Unmanaged ansible home already exists'
+    uid=1000
+    while /usr/bin/getent passwd "$uid" >/dev/null || /usr/bin/getent group "$uid" >/dev/null; do
+        ((uid+=1))
+        ((uid < 60000)) || fail 'No free normal user ID'
+    done
+    gid=$uid
+    # Record before mutation so an interrupted groupadd/useradd can be resumed.
+    temporary=$(/usr/bin/mktemp /var/lib/ansible-account/identity.XXXXXX)
+    printf '%s:%s\n' "$uid" "$gid" > "$temporary"
+    /usr/bin/chmod 0600 "$temporary"
+    /usr/bin/mv -T "$temporary" "$state"
+fi
+
+# Detect duplicate IDs too, rather than trusting only the first NSS match.
+passwd_entries=$(/usr/bin/getent passwd) || fail 'Cannot enumerate account identities'
+group_entries=$(/usr/bin/getent group) || fail 'Cannot enumerate group identities'
+while IFS=: read -r name _ found_uid found_gid _ home shell; do
+    if [[ "$name" == ansible ]]; then
+        [[ "$found_uid" == "$uid" && "$found_gid" == "$gid" && "$home" == /home/ansible && "$shell" == /bin/bash ]] || fail 'Incompatible ansible identity'
+    elif [[ "$found_uid" == "$uid" || "$found_gid" == "$gid" ]]; then
+        fail "Reserved identity is used by $name"
+    fi
+done <<< "$passwd_entries"
+while IFS=: read -r name _ found_gid members; do
+    if [[ "$name" == ansible ]]; then
+        [[ "$found_gid" == "$gid" && ( -z "$members" || "$members" == ansible ) ]] || fail 'Incompatible ansible group'
+    elif [[ "$found_gid" == "$gid" ]]; then
+        fail "Reserved group ID is used by $name"
+    fi
+done <<< "$group_entries"
+
+if [[ -e /home/ansible || -L /home/ansible ]]; then
+    [[ -d /home/ansible && ! -L /home/ansible ]] || fail 'Unsafe ansible home'
+    [[ $(/usr/bin/stat -c %u /home/ansible) == "$uid" && $(/usr/bin/stat -c %g /home/ansible) == "$gid" ]] || fail 'Home ownership conflicts with recorded identity'
+else
+    /usr/bin/install -d -o "$uid" -g "$gid" -m 0700 /home/ansible
+fi
+
+groupadd=/usr/sbin/groupadd
+useradd=/usr/sbin/useradd
+[[ -x "$groupadd" ]] || groupadd=/usr/bin/groupadd
+[[ -x "$useradd" ]] || useradd=/usr/bin/useradd
+if ! /usr/bin/getent group ansible >/dev/null; then
+    "$groupadd" --gid "$gid" ansible
+fi
+if ! /usr/bin/getent passwd ansible >/dev/null; then
+    # '*' is an unusable crypt password, without Linux's '!' account-lock marker.
+    # SSH policy separately requires CA certificates and disables all passwords.
+    "$useradd" --uid "$uid" --gid "$gid" --no-create-home \
+        --home-dir /home/ansible --shell /bin/bash --password '*' ansible
+fi
+# NSS names must resolve to the local account that we manage.
+/usr/bin/awk -F: -v uid="$uid" -v gid="$gid" '$1 == "ansible" && $3 == uid && $4 == gid { found=1 } END { exit !found }' /etc/passwd || fail 'ansible is not a local account'
+echo 'ansible-account: fixed local account is ready'

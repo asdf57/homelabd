@@ -19,6 +19,30 @@ HOMELAB_GROUP="homelabd"
 
 sudo -v
 
+# Enrollment is separate from public image inputs and from runner credentials.
+if [[ -n "${HOMELABD_API_TOKEN_FILE:-}" ]]; then
+    agent_token=$(< "$HOMELABD_API_TOKEN_FILE")
+    [[ ${#agent_token} -ge 32 && "$agent_token" != *[[:space:]\"\'\\]* ]] || { log ERROR 'Invalid daemon API token'; exit 1; }
+    sudo install -d -o root -g root -m 0700 /etc/homelabd
+    printf 'API_TOKEN=%s\n' "$agent_token" | sudo install -o root -g root -m 0600 /dev/stdin /etc/homelabd/environment
+    unset agent_token
+fi
+
+# Reconcile before granting the fixed sudo policy to any existing identity.
+log "INFO" "Installing fixed Ansible account reconciliation"
+sudo install -D -o root -g root -m 0755 \
+    "$SCRIPT_DIR/management/ensure-ansible-user" /usr/local/libexec/ensure-ansible-user
+sudo /usr/local/libexec/ensure-ansible-user
+management_args=(/)
+if [[ -n "${SSH_CA_BUNDLE_SOURCE:-}" ]]; then
+    management_args+=("$(realpath -e -- "$SSH_CA_BUNDLE_SOURCE")")
+fi
+sudo bash "$SCRIPT_DIR/management/install.sh" "${management_args[@]}"
+sudo systemctl daemon-reload
+sudo systemctl enable ansible-account.service ansible-account.timer
+sudo systemctl start ansible-account.service
+sudo systemctl start ansible-account.timer
+
 # Create service account.
 if ! getent group "$HOMELAB_GROUP" >/dev/null; then
     log "INFO" "Creating group $HOMELAB_GROUP"
@@ -55,14 +79,7 @@ rmdir "$REPO_ROOT/build" 2>/dev/null || true
 log "INFO" "Creating /var/lib/homelab directory"
 sudo install -d -o root -g root -m 0755 /var/lib/homelab
 
-log "INFO" "Creating /var/lib/homelab/authorized-keys directory"
-sudo install -d \
-    -o "$HOMELAB_USER" \
-    -g "$HOMELAB_GROUP" \
-    -m 0750 \
-    /var/lib/homelab/authorized-keys
-
-log "INFO" "Configuring sshd to read homelabd-managed keys"
+log "INFO" "Disabling the legacy daemon-managed SSH key source"
 sudo install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
 sudo install \
     -o root \

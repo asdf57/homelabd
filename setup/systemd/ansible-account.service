@@ -1,0 +1,16 @@
+[Unit]
+Description=Ensure the fixed Ansible management account exists
+# Do not order Before=sshd: repeated runtime repairs must work with sshd active.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/libexec/ensure-ansible-user
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+UMask=0077
+TimeoutStartSec=30s
+
+[Install]
+WantedBy=multi-user.target

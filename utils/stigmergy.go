@@ -20,7 +20,8 @@ type StigmergyApi struct {
 func NewStigmergyApi(logger *slog.Logger, config *Config, httpClient *http.Client) *StigmergyApi {
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:       30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return fmt.Errorf("API redirects are not accepted") },
 		}
 	}
 
@@ -41,7 +42,12 @@ func (s *StigmergyApi) UploadMachineReport(report MachineReport) error {
 
 	bodyBuffer := bytes.NewBuffer(jsonBytes)
 
-	resp, err := s.httpClient.Post(s.config.APIEndpoint+"/api/v1alpha1/machine-reports", "application/json", bodyBuffer)
+	request, err := http.NewRequest(http.MethodPost, s.config.APIEndpoint+"/api/v1alpha1/machine-reports", bodyBuffer)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	resp, err := s.do(request)
 	if err != nil {
 		s.logger.Error("failed to submit machine report", "error", err)
 		return err
@@ -64,7 +70,11 @@ func (s *StigmergyApi) UploadMachineReport(report MachineReport) error {
 }
 
 func (s *StigmergyApi) FindServerFromLocation(location ServerMachineSelector) (*Server, error) {
-	resp, err := s.httpClient.Get(fmt.Sprintf("%s/api/v1alpha1/servers", s.config.APIEndpoint))
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1alpha1/servers", s.config.APIEndpoint), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.do(request)
 	if err != nil {
 		s.logger.Error("failed to get servers", "error", err)
 		return nil, err
@@ -99,6 +109,13 @@ func (s *StigmergyApi) FindServerFromLocation(location ServerMachineSelector) (*
 	}
 
 	return nil, fmt.Errorf("no server found for location: %+v", location)
+}
+
+func (s *StigmergyApi) do(request *http.Request) (*http.Response, error) {
+	if s.config.APIToken != "" {
+		request.Header.Set("Authorization", "Bearer "+s.config.APIToken)
+	}
+	return s.httpClient.Do(request)
 }
 
 // MachineLocationFromLLDP derives the same switch/port identity that

@@ -10,6 +10,7 @@ import (
 const DEFAULT_POLLING_INTERVAL = 30 * time.Second
 
 type Config struct {
+	APIToken        string
 	APIEndpoint     string
 	PollingInterval time.Duration
 }
@@ -39,6 +40,7 @@ func LoadConfig(logger *slog.Logger) (Config, error) {
 	}
 
 	return Config{
+		APIToken:        strings.TrimSpace(os.Getenv("API_TOKEN")),
 		APIEndpoint:     envOr("API_ENDPOINT", "http://127.0.0.1:8080"),
 		PollingInterval: interval,
 	}, nil

@@ -569,87 +569,6 @@ func BuildMachineReport(logger *slog.Logger) (utils.MachineReport, error) {
 	return newMachineReport(time.Now().UTC(), diskInfo, sysInfo, *cpuInfo, ifaceInfo, lldpInfo)
 }
 
-func InstallSSHKey(logger *slog.Logger, server *utils.Server) error {
-	// homelabd shall own /var/lib/homelab/authorized-keys/
-	// homelabd shall use AuthorizedKeysFile
-	sshKeys := make(map[string]utils.ServerSSHAuthorizedKeyStatus)
-	for _, keyBlob := range server.Status.SSH.AuthorizedKeys {
-		sshKeys[keyBlob.LoginUser] = keyBlob
-	}
-
-	// See what keys are currently installed in /var/lib/homelab/authorized-keys/
-	files, err := os.ReadDir("/var/lib/homelab/authorized-keys/")
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.Error("failed to read SSH keys directory", "error", err)
-			return err
-		}
-	}
-
-	for _, file := range files {
-		if !file.Type().IsRegular() {
-			continue
-		}
-
-		loginUser := file.Name()
-		if _, ok := sshKeys[loginUser]; !ok {
-			logger.Info("removing SSH key for user not in server status",
-				"loginUser", loginUser,
-			)
-			keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", loginUser)
-			if err := os.Remove(keyPath); err != nil {
-				if os.IsNotExist(err) {
-					logger.Warn("SSH key file does not exist, skipping removal",
-						"loginUser", loginUser,
-						"path", keyPath,
-					)
-					continue
-				}
-				logger.Error("failed to remove SSH key", "error", err)
-				return err
-			}
-		}
-	}
-
-	for _, key := range sshKeys {
-		logger.Info(
-			"discovered SSH key",
-			"accessGrantName",
-			key.AccessGrantRef.Name,
-			"accessGrantUid",
-			key.AccessGrantRef.UID,
-			"fingerprint",
-			key.Fingerprint,
-			"loginUser",
-			key.LoginUser,
-			"publicKey",
-			key.PublicKey,
-		)
-
-		keyPath := fmt.Sprintf("/var/lib/homelab/authorized-keys/%s", key.LoginUser)
-
-		if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
-			if os.IsNotExist(err) {
-				logger.Warn("/var/lib/homelab/authorized-keys/ does not exist, creating it")
-				if err := os.MkdirAll("/var/lib/homelab/authorized-keys/", 0700); err != nil {
-					logger.Error("failed to create directory for SSH keys", "error", err)
-					return err
-				}
-				if err := os.WriteFile(keyPath, []byte(key.PublicKey), 0600); err != nil {
-					logger.Error("failed to write SSH key", "error", err)
-					return err
-				}
-			}
-
-			logger.Error("failed to write SSH key", "error", err)
-			return err
-		}
-
-		logger.Info("installed SSH key", "path", keyPath, "loginUser", key.LoginUser)
-	}
-	return nil
-}
-
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -710,10 +629,6 @@ func main() {
 				}
 				logger.Info("found server for LLDP location", "server", server.Metadata.Name, "location", location)
 
-				if err := InstallSSHKey(logger, server); err != nil {
-					logger.Error("failed to install SSH key(s)", "error", err)
-					continue
-				}
 			case <-ctx.Done():
 				logger.Info("shutdown requested")
 				return

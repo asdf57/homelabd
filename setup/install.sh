@@ -20,10 +20,10 @@ HOMELAB_GROUP="homelabd"
 sudo -v
 
 # Enrollment is separate from public image inputs and from runner credentials.
+sudo install -d -o root -g root -m 0700 /etc/homelabd
 if [[ -n "${HOMELABD_API_TOKEN_FILE:-}" ]]; then
     agent_token=$(< "$HOMELABD_API_TOKEN_FILE")
     [[ ${#agent_token} -ge 32 && "$agent_token" != *[[:space:]\"\'\\]* ]] || { log ERROR 'Invalid daemon API token'; exit 1; }
-    sudo install -d -o root -g root -m 0700 /etc/homelabd
     printf 'API_TOKEN=%s\n' "$agent_token" | sudo install -o root -g root -m 0600 /dev/stdin /etc/homelabd/environment
     unset agent_token
 fi

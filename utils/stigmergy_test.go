@@ -1,12 +1,30 @@
 package utils
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestServerProvisioningReferencesRoundTrip(t *testing.T) {
+	var status ServerProvisioningStatus
+	if err := json.Unmarshal([]byte(`{"provisioned":true,"maintenance":false,"activeRunRef":{"name":"run","uid":"uid"},"lastRunRef":{"name":"run","uid":"uid"},"lastSuccessfulRunRef":{"name":"success","uid":"success-uid"}}`), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.ActiveRunRef == nil || status.LastRunRef == nil || status.LastSuccessfulRunRef == nil || status.LastSuccessfulRunRef.UID != "success-uid" {
+		t.Fatal("run references lost")
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"lastRunRef"`) {
+		t.Fatal("run reference omitted")
+	}
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

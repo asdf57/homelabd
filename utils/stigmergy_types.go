@@ -269,9 +269,7 @@ type ServerChecksum struct {
 }
 
 type ServerProvisioningSpec struct {
-	Enabled     bool    `json:"enabled"`
-	Reprovision *int64  `json:"reprovision,omitempty"`
-	TargetDisk  *string `json:"targetDisk,omitempty"`
+	Enabled bool `json:"enabled"`
 }
 
 type ServerReconciliationSpec struct {
@@ -350,25 +348,11 @@ type ServerManagementInterfaceStatus struct {
 }
 
 type ServerProvisioningStatus struct {
-	ObservedReprovision      *int64                 `json:"observedReprovision,omitempty"`
-	RequestedReprovision     *int64                 `json:"requestedReprovision,omitempty"`
-	Maintenance              *bool                  `json:"maintenance,omitempty"`
-	BootTarget               *string                `json:"bootTarget,omitempty"`
-	SourceBootID             *string                `json:"sourceBootID,omitempty"`
-	LiveBootID               *string                `json:"liveBootID,omitempty"`
-	NetbootArmed             *bool                  `json:"netbootArmed,omitempty"`
-	BootstrapPublicKey       *string                `json:"bootstrapPublicKey,omitempty"`
-	Snapshot                 map[string]interface{} `json:"snapshot,omitempty"`
-	AttemptID                *string                `json:"attemptID,omitempty"`
-	AttemptNumber            *int                   `json:"attemptNumber,omitempty"`
-	BackendRunID             *string                `json:"backendRunID,omitempty"`
-	CompletedAt              *time.Time             `json:"completedAt,omitempty"`
-	CurrentStage             *string                `json:"currentStage,omitempty"`
-	Message                  *string                `json:"message,omitempty"`
-	ObservedServerGeneration *int64                 `json:"observedServerGeneration,omitempty"`
-	Phase                    *string                `json:"phase,omitempty"`
-	Provisioned              bool                   `json:"provisioned"`
-	StartedAt                *time.Time             `json:"startedAt,omitempty"`
+	Provisioned          bool               `json:"provisioned"`
+	Maintenance          *bool              `json:"maintenance,omitempty"`
+	ActiveRunRef         *ResourceReference `json:"activeRunRef,omitempty"`
+	LastRunRef           *ResourceReference `json:"lastRunRef,omitempty"`
+	LastSuccessfulRunRef *ResourceReference `json:"lastSuccessfulRunRef,omitempty"`
 }
 
 type ServerResourceSummary struct {

@@ -29,3 +29,6 @@ EOF
 install -d -o root -g root -m 0755 "$target/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/homelabd.service "$target/etc/systemd/system/multi-user.target.wants/homelabd.service"
 ln -sf /usr/lib/systemd/system/lldpd.service "$target/etc/systemd/system/multi-user.target.wants/lldpd.service"
+if [[ -f "$target/etc/debian_version" ]]; then
+    bash "$setup/agent/configure-debian-lldp.sh" "$target"
+fi

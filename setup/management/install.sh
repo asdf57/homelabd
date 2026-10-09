@@ -7,12 +7,14 @@ target=$(realpath -e -- "$1")
 setup=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 [[ -d "$target" ]] || exit 1
 # Keep the same reviewed assets available to provisioning in the live image.
-for relative in agent/install.sh management/ensure-ansible-user management/install.sh management/ansible.sudoers systemd/ansible-account.service systemd/ansible-account.timer systemd/homelabd.service sshd/00-ansible-management.conf sshd/10-homelabd.conf; do
+# Copy complete reviewed asset directories so new dependencies survive handoffs.
+while IFS= read -r -d '' source; do
+    relative=${source#"$setup/"}
     destination="$target/usr/share/homelabd/setup/$relative"
     if [[ "$(realpath -m "$destination")" != "$setup/$relative" ]]; then
-        install -D -o root -g root -m 0644 "$setup/$relative" "$destination"
+        install -D -o root -g root -m 0644 "$source" "$destination"
     fi
-done
+done < <(find "$setup/agent" "$setup/management" "$setup/systemd" "$setup/sshd" -type f -print0)
 install -D -o root -g root -m 0755 "$setup/management/ensure-ansible-user" "$target/usr/local/libexec/ensure-ansible-user"
 if [[ "$target" == / ]]; then
     /usr/local/libexec/ensure-ansible-user

@@ -3,9 +3,11 @@
 set -euo pipefail
 [[ -f /.dockerenv && $EUID == 0 && -f /etc/debian_version ]] || exit 1
 apt-get update -qq
-apt-get install -y --no-install-recommends lldpd systemd util-linux
-bash /assets/agent/install.sh / /bin/true https://api.example
-bash /assets/agent/configure-debian-lldp.sh /
+apt-get install -y --no-install-recommends lldpd systemd util-linux sudo
+# Exercise the assets provisioning actually takes from the live image.
+bash /assets/management/install.sh /
+bash /usr/share/homelabd/setup/agent/install.sh / /bin/true https://api.example
+bash /usr/share/homelabd/setup/agent/configure-debian-lldp.sh /
 [[ $(stat -c '%U:%G:%a' /usr/sbin/lldpcli) == root:_lldpd:750 ]]
 ! id -nG homelabd | tr ' ' '\n' | grep -qx adm
 /usr/sbin/lldpd -d >/tmp/lldpd-test.log 2>&1 &

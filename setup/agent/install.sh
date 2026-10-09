@@ -7,6 +7,9 @@ binary=$(realpath -e -- "$2")
 setup=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 endpoint=$3
 [[ "$endpoint" =~ ^https?://[a-zA-Z0-9.:/_-]+$ ]] || { echo 'Unsafe API endpoint' >&2; exit 1; }
+if [[ -f "$target/etc/debian_version" ]]; then
+    [[ -f "$setup/agent/configure-debian-lldp.sh" ]] || { echo 'Incomplete Debian agent setup bundle' >&2; exit 1; }
+fi
 install -d -o root -g root -m 0700 "$target/etc/homelabd"
 # This secret arrives through private build-task parameters, never public Git inputs.
 if [[ -n "${HOMELABD_API_TOKEN:-}" ]]; then

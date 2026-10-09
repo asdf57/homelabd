@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/asdf57/homelabd/utils"
@@ -87,7 +89,7 @@ func newMachineReport(
 	return utils.MachineReport{
 		APIVersion: utils.APIVersionV1Alpha1,
 		Kind:       utils.KindMachineReport,
-		Metadata:   utils.Metadata{Name: "report"},
+		Metadata:   utils.Metadata{Name: "report-" + strings.ToLower(rand.Text())},
 		Spec: utils.MachineReportSpec{
 			CPU: utils.MachineReportCPU{
 				Cores:         apiCores,

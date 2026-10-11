@@ -24,16 +24,37 @@ func newMachineReport(
 			return utils.MachineReport{}, fmt.Errorf("disk %q size %d exceeds Stigmergy's int64 limit", device.Name, device.Size)
 		}
 		apiStorage[i] = utils.MachineReportStorageDevice{
-			KName:  device.KernelName,
-			Model:  device.Model,
-			Name:   device.Name,
-			Path:   device.Path,
-			Rota:   device.Rotational,
-			Serial: device.Serial,
-			Size:   int64(device.Size),
-			Tran:   device.Transport,
-			Type:   device.Type,
-			WWN:    device.WWN,
+			KName:      device.KernelName,
+			Model:      device.Model,
+			Name:       device.Name,
+			Path:       device.Path,
+			Rota:       device.Rotational,
+			Serial:     device.Serial,
+			Size:       int64(device.Size),
+			Tran:       device.Transport,
+			Type:       device.Type,
+			WWN:        device.WWN,
+			Removable:  device.Removable,
+			ReadOnly:   device.ReadOnly,
+			Partitions: []utils.MachineReportPartition{},
+		}
+		for _, child := range device.Children {
+			if child.Type != "part" {
+				continue
+			}
+			if child.Size > math.MaxInt64 {
+				return utils.MachineReport{}, fmt.Errorf("partition size exceeds int64")
+			}
+			mounts := []string{}
+			for _, mount := range child.MountPoints {
+				if mount != nil {
+					mounts = append(mounts, *mount)
+				}
+			}
+			apiStorage[i].Partitions = append(apiStorage[i].Partitions, utils.MachineReportPartition{
+				Number: child.PartitionNumber, Path: child.Path, Size: int64(child.Size), StartBytes: child.StartBytes,
+				Filesystem: child.Filesystem, UUID: child.UUID, PartUUID: child.PartUUID, MountPoints: mounts,
+			})
 		}
 	}
 

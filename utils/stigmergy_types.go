@@ -85,16 +85,30 @@ type MachineReportCPUCore struct {
 }
 
 type MachineReportStorageDevice struct {
-	KName  string `json:"kname"`
-	Model  string `json:"model"`
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Rota   bool   `json:"rota"`
-	Serial string `json:"serial"`
-	Size   int64  `json:"size"`
-	Tran   string `json:"tran"`
-	Type   string `json:"type"`
-	WWN    string `json:"wwn"`
+	KName      string                   `json:"kname"`
+	Model      string                   `json:"model"`
+	Name       string                   `json:"name"`
+	Path       string                   `json:"path"`
+	Rota       bool                     `json:"rota"`
+	Serial     string                   `json:"serial"`
+	Size       int64                    `json:"size"`
+	Tran       string                   `json:"tran"`
+	Type       string                   `json:"type"`
+	WWN        string                   `json:"wwn"`
+	Removable  bool                     `json:"removable"`
+	ReadOnly   bool                     `json:"readOnly"`
+	Partitions []MachineReportPartition `json:"partitions"`
+}
+
+type MachineReportPartition struct {
+	Number      int      `json:"number"`
+	Path        string   `json:"path"`
+	Size        int64    `json:"size"`
+	StartBytes  int64    `json:"startBytes"`
+	Filesystem  string   `json:"filesystem"`
+	UUID        string   `json:"uuid"`
+	PartUUID    string   `json:"partUUID"`
+	MountPoints []string `json:"mountPoints"`
 }
 
 type MachineReportSystem struct {

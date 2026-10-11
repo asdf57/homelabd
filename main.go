@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -103,16 +104,25 @@ type CPUMemInfo struct {
 }
 
 type LSBLKDevice struct {
-	Name       string `json:"name"`
-	KernelName string `json:"kname"`
-	Path       string `json:"path"`
-	Type       string `json:"type"`
-	Size       uint64 `json:"size"`
-	Rotational bool   `json:"rota"`
-	Model      string `json:"model"`
-	Serial     string `json:"serial"`
-	WWN        string `json:"wwn"`
-	Transport  string `json:"tran"`
+	Name            string        `json:"name"`
+	KernelName      string        `json:"kname"`
+	Path            string        `json:"path"`
+	Type            string        `json:"type"`
+	Size            uint64        `json:"size"`
+	Rotational      bool          `json:"rota"`
+	Model           string        `json:"model"`
+	Serial          string        `json:"serial"`
+	WWN             string        `json:"wwn"`
+	Transport       string        `json:"tran"`
+	Removable       bool          `json:"rm"`
+	ReadOnly        bool          `json:"ro"`
+	Filesystem      string        `json:"fstype"`
+	UUID            string        `json:"uuid"`
+	PartUUID        string        `json:"partuuid"`
+	MountPoints     []*string     `json:"mountpoints"`
+	Children        []LSBLKDevice `json:"children"`
+	PartitionNumber int           `json:"-"`
+	StartBytes      int64         `json:"-"`
 }
 
 type LSBLKEnrichedDevice struct {
@@ -216,7 +226,7 @@ func DiscoverDisks() ([]LSBLKDevice, error) {
 		"--json",
 		"--bytes",
 		"--output",
-		"NAME,KNAME,PATH,TYPE,SIZE,ROTA,MODEL,SERIAL,WWN,TRAN",
+		"NAME,KNAME,PATH,TYPE,SIZE,ROTA,MODEL,SERIAL,WWN,TRAN,RM,RO,FSTYPE,UUID,PARTUUID,MOUNTPOINTS",
 	)
 
 	output, err := cmd.Output()
@@ -232,6 +242,30 @@ func DiscoverDisks() ([]LSBLKDevice, error) {
 	var disks []LSBLKDevice
 	for _, device := range result.BlockDevices {
 		if device.Type == "disk" {
+			for index := range device.Children {
+				child := &device.Children[index]
+				if child.Type != "part" {
+					continue
+				}
+				number, err := os.ReadFile(filepath.Join("/sys/class/block", child.KernelName, "partition"))
+				if err != nil {
+					return nil, fmt.Errorf("read partition number: %w", err)
+				}
+				child.PartitionNumber, err = strconv.Atoi(strings.TrimSpace(string(number)))
+				if err != nil {
+					return nil, err
+				}
+				start, err := os.ReadFile(filepath.Join("/sys/class/block", child.KernelName, "start"))
+				if err != nil {
+					return nil, fmt.Errorf("read partition start: %w", err)
+				}
+				sectors, err := strconv.ParseInt(strings.TrimSpace(string(start)), 10, 64)
+				if err != nil || sectors < 0 || sectors > math.MaxInt64/512 {
+					return nil, fmt.Errorf("invalid partition start")
+				}
+				// Linux sysfs block offsets are always expressed in 512-byte sectors.
+				child.StartBytes = sectors * 512
+			}
 			disks = append(disks, device)
 		}
 	}

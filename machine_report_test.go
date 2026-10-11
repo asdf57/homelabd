@@ -28,3 +28,18 @@ func TestMachineReportsHaveIndependentNames(t *testing.T) {
 		}
 	}
 }
+
+func TestMachineReportIncludesReadOnlyPartitionObservations(t *testing.T) {
+	mount := "/"
+	disk := LSBLKDevice{Name: "sda", Size: 10000000000, ReadOnly: true, Children: []LSBLKDevice{
+		{Type: "part", Path: "/dev/sda7", Size: 2000000000, PartitionNumber: 7, StartBytes: 1048576, Filesystem: "ext4", UUID: "root", PartUUID: "partition", MountPoints: []*string{nil, &mount}},
+	}}
+	report, err := newMachineReport(time.Now(), []LSBLKDevice{disk}, IdentityInfo{}, CPUInfo{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := report.Spec.Storage[0]
+	if !observed.ReadOnly || len(observed.Partitions) != 1 || observed.Partitions[0].Number != 7 || observed.Partitions[0].MountPoints[0] != "/" {
+		t.Fatal("partition observations lost")
+	}
+}
